@@ -1,3 +1,20 @@
+# -*- coding: utf-8 -*-
+# ---
+# jupyter:
+#   jupytext:
+#     formats: ipynb,jl:percent
+#     text_representation:
+#       extension: .jl
+#       format_name: percent
+#       format_version: '1.3'
+#       jupytext_version: 1.17.1
+#   kernelspec:
+#     display_name: Julia 1.11.2
+#     language: julia
+#     name: julia-1.11
+# ---
+
+# %%
 using NLsolve, Dates
 #求解
 function nls(func, params...; ini = [0.0])
@@ -291,3 +308,5 @@ end
 
 #testing1(80, 0.0125, 0.0125)
 testing2(4,5)
+
+# %%
