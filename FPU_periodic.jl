@@ -32,12 +32,12 @@ end
 #空間前進差分
 function diff_for(u, Dx)
     N = length(u)
-    return vcat([(u[i+1]-u[i])/Dx  for i in 1:(N-1)],[(u[1]-u[N])/Dx])
+    return vcat([(u[i+1]-u[i])/Dx for i in 1:(N-1)],[(u[1]-u[N])/Dx])
 end
 #空間後退差分
 function diff_back(u, Dx)
     N = length(u)
-    return vcat([(u[1]-u[N])/Dx],[(u[i]-u[i-1])/Dx  for i in 2:N],)
+    return vcat([(u[1]-u[N])/Dx],[(u[i]-u[i-1])/Dx for i in 2:N],)
 end
 #空間中心1次差分
 function diff1(u, Dx)
@@ -123,14 +123,6 @@ function h_RSC(u, u_now, u_prev, eps, Dt, Dx) #U=(u,v)
     rest = [cdd_u[k]*cd_au[k] + cd_u[k]*cdd_au[k] for k in 1:N]
     return left - eps*rest/6
 end
-function h_RSC_initial(u, u0, ut0, eps, Dt, Dx) #U=(u,v)
-    N = length(u0)
-    cd_u0 = diff1(u0,Dx)
-    cdd_au = diff2((u+u0)/2,Dx)
-    left = 2*((u - u0)/Dt - ut0) - cdd_au
-    rest = [ eps*cd_u0[k]*cdd_au[k] for k in 1:N]
-    return left - rest
-end
 #2段スキーム保存量
 function G_RSC(u, u_now, eps, Dt, Dx)
     N = length(u)
@@ -140,62 +132,26 @@ function G_RSC(u, u_now, eps, Dt, Dx)
 end
 
 # %%
-#テスト関数
-function com_test(N, m, Dt, Dx)
-    return [(1 + π^2 + 0.25*π^3*cos(π*k*Dx)*exp(-m*Dt))*sin(π*k*Dx)*exp(-m*Dt) for k in 1:N]
-end
-#1段DVDMテスト
-function h_DVDM1_test(U, U0, eps, m, Dt, Dx)
-    N = Int64(length(U0)/2)
-    ret = h_DVDM1(U, U0, eps, Dt, Dx)
-    dif = com_test(N, m+0.5, Dt, Dx)
-    for k in 1:N
-        ret[N+k] -= dif[k]
-    end
-    return ret
-end
-#2段DVDMテスト
-function h_DVDM2_test(u, u_now, u_prev, eps, m, Dt, Dx)
-    N = length(u_now)
-    ret = h_DVDM2(u, u_now, u_prev, eps, Dt, Dx)
-    dif = com_test(N, m, Dt, Dx)
-    return ret - dif
-end
-#2段RSCテスト
-function h_RSC_test(u, u_now, u_prev, eps, m, Dt, Dx)
-    N = length(u_now)
-    ret = h_RSC(u, u_now, u_prev, eps, Dt, Dx)
-    dif = com_test(N, m, Dt, Dx)
-    return ret - dif
-end
-function h_RSC_initial_test(u, u_now, u_prev, eps, Dt, Dx) #U=(u,v)
-    N = length(u_now)
-    ret = h_RSC_initial(u, u_now, u_prev, eps, Dt, Dx)
-    dif = com_test(N, m, Dt, Dx)
-    return ret - dif
-end
-
-# %%
 #1段DVDM
-function FPU_DVDM1(U0, eps, M, Dt, Dx, test = false) # U0 = (u0,ut0)
+function FPU_DVDM1(U0, eps, M, Dt, Dx) # U0 = (u0,ut0)
     t_start = time()
     ulist = [U0]
     U_now = U0
     ene0 = G_DVDM1(U_now, eps, Dx)
     max_err = 0
     for m in 1:M
-        ini0 = 0.001*zeros(length(U0))
-        if test
-            U_next = nls(h_DVDM1_test, U_now, eps, m-1, Dt, Dx, ini = U_now+ini0)
-        else
-            U_next = nls(h_DVDM1, U_now, eps, Dt, Dx, ini = U_now+ini0)
-        end
+        ini0 = 0.01*zeros(length(U0))
+        U_next = nls(h_DVDM1, U_now, eps, Dt, Dx, ini = U_now+ini0)
         U_next = U_next[1]
         u_next = U_next[1:(Int64(length(U0)/2))]
         v_next = U_next[(Int64(length(U0)/2)+1):length(U0)]
         U_next = vcat(u_next,v_next)
         ene_now = G_DVDM1(U_next, eps, Dx)
         ratio = abs((ene_now - ene0)/ene0)
+        if ratio > 10
+            println("DVDM1 Error")
+            return ulist
+        end
         max_err = max(max_err,ratio)
         if m%10 == 0
             println("DVDVM1, ", M, " ", m, " ", ratio)
@@ -211,35 +167,29 @@ end
 # %%
 #2段DVDM
 function FPU_DVDM2(u0, ut0, eps, M, Dt, Dx, test = false)
-    println(length(u0), " ", M," ",Dt," ",Dx)
     t_start = time()
     ulist = [u0]
     N = length(u0)
     # u1 を計算
     cd_u0 = diff1(u0,Dx)
     cdd_u0 = diff2(u0,Dx)
-    if test
-        dif = com_test(N,0,Dt,Dx)
-        u1 = [u0[k] + Dt*ut0[k] + 0.5*Dt^2*((1 + eps*cd_u0[k])*cdd_u0[k] + dif[k]) for k in 1:N]
-    else
-        u1 = [u0[k] + Dt*ut0[k] + 0.5*Dt^2*(1 + eps*cd_u0[k])*cdd_u0[k] for k in 1:N]
-    end
+    u1 = [u0[k] + Dt*ut0[k] + 0.5*Dt^2*(1 + eps*cd_u0[k])*cdd_u0[k] for k in 1:N]
     push!(ulist,u1)
 
     u_prev = u0; u_now = u1
     ene0 = G_DVDM2(u_now, u_prev, eps, Dt, Dx)
     max_err = 0
     for m in 2:M
-        ini0 = 0.001*ones(N)
-        if test
-            u_next = nls(h_DVDM2_test, u_now, u_prev, eps, m-1, Dt, Dx, ini = u_now+ini0)
-        else
-            u_next = nls(h_DVDM2, u_now, u_prev, eps, Dt, Dx, ini = u_now+ini0)
-        end
+        ini0 = 0.01*ones(N)
+        u_next = nls(h_DVDM2, u_now, u_prev, eps, Dt, Dx, ini = u_now+ini0)
         u_next = u_next[1]
         ene_now = G_DVDM2(u_next, u_now, eps, Dt, Dx)
         ratio = abs((ene_now - ene0)/ene0)
         max_err = max(max_err,ratio)
+        if ratio > 10
+            println("DVDM2 Error")
+            return ulist
+        end
         if m%10 == 0
             println("DVDM2, ", M, " ", m, " ", ratio)
         end
@@ -253,33 +203,15 @@ end
 
 # %%
 #2段RSC
-function FPU_RSC(u0, ut0, eps, M, Dt, Dx, test = false, original = false)
-    println(length(u0), " ", M," ",Dt," ",Dx)
+function FPU_RSC(u0, ut0, eps, M, Dt, Dx)
     t_start = time()
     ulist = [u0]
     N = length(u0)
     
-    # # u1 を計算
-    # Taylor
-    # 
-    if original
-        ini0 = 0.001*ones(N)
-        if test
-            u_next = nls(h_RSC_initial_test, u0, ut0, eps, Dt, Dx, ini = u0+ini0)
-        else
-            u_next = nls(h_RSC_initial, u0, ut0, eps, Dt, Dx, ini = u0+ini0)
-        end
-        u1 = u_next[1]
-    else
-        cd_u0 = diff1(u0,Dx)
-        cdd_u0 = diff2(u0,Dx)
-        if test
-            dif = com_test(N,0,Dt,Dx)
-            u1 = [u0[k] + Dt*ut0[k] + 0.5*Dt^2*((1+eps*cd_u0[k])*cdd_u0[k] + dif[k]) for k in 1:N]
-        else
-            u1 = [u0[k] + Dt*ut0[k] + 0.5*Dt^2*(1+eps*cd_u0[k])*cdd_u0[k] for k in 1:N]
-        end
-    end
+    # u1 を計算
+    cd_u0 = diff1(u0,Dx)
+    cdd_u0 = diff2(u0,Dx)
+    u1 = [u0[k] + Dt*ut0[k] + 0.5*Dt^2*(1+eps*cd_u0[k])*cdd_u0[k] for k in 1:N]
     
     push!(ulist,u1)
 
@@ -287,15 +219,15 @@ function FPU_RSC(u0, ut0, eps, M, Dt, Dx, test = false, original = false)
     ene0 = G_RSC(u_now, u_prev, eps, Dt, Dx)
     max_err = 0
     for m in 2:M
-        ini0 = 0.001*ones(N)
-        if test
-            u_next = nls(h_RSC_test, u_now, u_prev, eps, m-1, Dt, Dx, ini = u_now+ini0)
-        else
-            u_next = nls(h_RSC, u_now, u_prev, eps, Dt, Dx, ini = u_now+ini0)
-        end
+        ini0 = 0.01*ones(N)
+        u_next = nls(h_RSC, u_now, u_prev, eps, Dt, Dx, ini = u_now+ini0)
         u_next = u_next[1]
         ene_now = G_RSC(u_next, u_now, eps, Dt, Dx)
         ratio = abs((ene_now - ene0)/ene0)
+        if ratio > 10
+            println("RSC Error")
+            return ulist
+        end
         max_err = max(max_err,ratio)
         if m%10 == 0
             println("RSC, ", M, " ", m, " ", ratio)
@@ -309,39 +241,15 @@ function FPU_RSC(u0, ut0, eps, M, Dt, Dx, test = false, original = false)
 end
 
 # %%
-function testing1(T, Dt, Dx)
-    #L = 1
-    N = Int64(ceil(1/Dx)); M = Int64(ceil(T/Dt))
-    u0 = [sin(π*k*Dx) for k in 1:N]
-    ut0 = [-sin(π*k*Dx) for k in 1:N]
-    U0 = vcat(u0,ut0)
-    u_DVDM1 = FPU_DVDM1(U0, 0.25, M, Dt, Dx, true)
-    u_DVDM2 = FPU_DVDM2(u0, ut0, 0.25, M, Dt, Dx, true)
-    u_RSC = FPU_RSC(u0, ut0, 0.25, M, Dt, Dx, true)
-    u_true = [[sin(π*k*Dx)*exp(-m*Dt) for k in 1:N] for m in 0:M]
-    error_DVDM1, error_DVDM2, error_RSC = 0.0, 0.0, 0.0
-    for m in 1:(length(u_true))
-        error_DVDM1 = max(error_DVDM1, L2error(u_DVDM1[m][1:N], u_true[m], Dx))
-        error_DVDM2 = max(error_DVDM2, L2error(u_DVDM2[m], u_true[m], Dx))
-        error_RSC = max(error_RSC, L2error(u_RSC[m], u_true[m], Dx))
-    end
-    println("M=",M,", Dt=", Dt, ", Dx=",Dx)
-    println(error_DVDM1, " ", error_DVDM2, " ", error_RSC)
-end
-
-# %%
-testing2(1,6,1,false)
-
-# %%
 import Pkg; Pkg.add("Plots")
 
 # %%
-function testing2(L,t,T)
+function testing(L,s,t,T)
     Dt = 0.1; Dx = 0.1
     N = Int64(ceil(L/Dx)); M = Int64(ceil(T/Dx))
     ulist_DVDM1 = []; ulist_DVDM2 = []; ulist_RSC = []
     println(N,M)
-    for i in 1:t
+    for i in s:t
         u0 = [sin((1/L)*2*π*k*Dx*0.5^(i-1)) for k in 1:(N*2^(i-1))]
         ut0 = zeros(Float64,N*2^(i-1))
         U0 = vcat(u0,ut0)
@@ -349,27 +257,58 @@ function testing2(L,t,T)
         push!(ulist_DVDM2, FPU_DVDM2(u0, ut0, 0.25, M*2^(i-1), Dt*0.5^(i-1), Dx*0.5^(i-1)))
         push!(ulist_RSC, FPU_RSC(u0, ut0, 0.25, M*2^(i-1), Dt*0.5^(i-1), Dx*0.5^(i-1)))
     end
-    for i in 1:(t-1)
+    M_end = M*2^(t-1)
+    for i in s:(t-1)
         error_DVDM1, error_DVDM2, error_RSC = 0.0, 0.0, 0.0
-        for m in 1:(length(ulist_DVDM1[i]))
-            u1_DVDM1 = ulist_DVDM1[i][m][1:N*2^(i-1)]
-            u2_DVDM1 = [ulist_DVDM1[t][1+(m-1)*2^(t-i)][k*2^(t-i)] for k in 1:(N*2^(i-1))]
-            error_DVDM1 = max(error_DVDM1, L2error(u1_DVDM1, u2_DVDM1, Dx*0.5^(i-1)))
-            u1_DVDM2 = ulist_DVDM2[i][m][1:N*2^(i-1)]
-            u2_DVDM2 = [ulist_DVDM2[t][1+(m-1)*2^(t-i)][k*2^(t-i)] for k in 1:(N*2^(i-1))]
-            error_DVDM2 = max(error_DVDM2, L2error(u1_DVDM2, u2_DVDM2, Dx*0.5^(i-1)))
-            u1_RSC = ulist_RSC[i][m][1:N*2^(i-1)]
-            u2_RSC = [ulist_RSC[t][1+(m-1)*2^(t-i)][k*2^(t-i)] for k in 1:(N*2^(i-1))]
-            error_RSC = max(error_RSC, L2error(u1_RSC, u2_RSC, Dx*0.5^(i-1)))
+        error_1to2, error_1toR, error_2toR = 0.0, 0.0, 0.0
+        M_now = M*2^(i-1)
+        if length(ulist_DVDM1[i]) == M_now + 1
+            for m in 1:(M_now+1)
+                u1_DVDM1 = ulist_DVDM1[i][m][1:N*2^(i-1)]
+                if length(ulist_DVDM2[i]) == M_now + 1
+                    u1_DVDM2 = ulist_DVDM2[i][m][1:N*2^(i-1)]
+                    error_1to2 = max(error_1to2,L2error(u1_DVDM1,u1_DVDM2,Dx*0.5^(i-1)))
+                end
+                if length(ulist_RSC[i]) == M_now + 1
+                    u1_RSC = ulist_RSC[i][m][1:N*2^(i-1)]
+                    error_1toR = max(error_1to2,L2error(u1_DVDM1,u1_RSC,Dx*0.5^(i-1)))
+                end
+                if length(ulist_DVDM1[t]) == M_end + 1
+                    u2_DVDM1 = [ulist_DVDM1[t][1+(m-1)*2^(t-i)][k*2^(t-i)] for k in 1:(N*2^(i-1))]
+                    error_DVDM1 = max(error_DVDM1, L2error(u1_DVDM1, u2_DVDM1, Dx*0.5^(i-1)))
+                end
+            end
         end
-        println(error_DVDM1, " ", error_DVDM2, " ", error_RSC)
+        if length(ulist_DVDM2[i]) == M_now + 1
+            for m in 1:(M_now+1)
+                u1_DVDM2 = ulist_DVDM2[i][m][1:N*2^(i-1)]
+                if length(ulist_RSC[i]) == M_now + 1
+                    u1_RSC = ulist_RSC[i][m][1:N*2^(i-1)]
+                    error_2toR = max(error_1to2,L2error(u1_DVDM2,u1_RSC,Dx*0.5^(i-1)))
+                end
+                if length(ulist_DVDM1[t]) == M_end + 1
+                    u2_DVDM2 = [ulist_DVDM2[t][1+(m-1)*2^(t-i)][k*2^(t-i)] for k in 1:(N*2^(i-1))]
+                    error_DVDM2 = max(error_DVDM2, L2error(u1_DVDM2, u2_DVDM2, Dx*0.5^(i-1)))
+                end
+            end
+        end
+        if length(ulist_RSC[i]) == M_now + 1
+            if length(ulist_RSC[t]) == M_end + 1
+                for m in 1:(M_now+1)
+                    u1_RSC = ulist_RSC[i][m][1:N*2^(i-1)]
+                    u2_RSC = [ulist_RSC[t][1+(m-1)*2^(t-i)][k*2^(t-i)] for k in 1:(N*2^(i-1))]
+                    error_RSC = max(error_RSC, L2error(u1_RSC, u2_RSC, Dx*0.5^(i-1)))
+                end
+            end
+        end
+        println(error_DVDM1, " ", error_DVDM2, " ", error_RSC, " ", error_1to2," ", error_1toR, " ", error_2toR)
     end
 end
 
 # %%
 using Plots
 gr()
-function graphing2_comparing(Dt,L,T)
+function graphing_comparing(Dt,L,T)
     Dx = Dt
     N = Int64(ceil(L/Dx))
     M = Int64(ceil(T/Dt))
@@ -390,9 +329,15 @@ function graphing2_comparing(Dt,L,T)
 end
 
 # %%
-graphing2_comparing(0.025,1,1)
+#graphing_comparing(0.005,1.5,0.5)
 
 # %%
-testing2(1,4,1)
+#testing(2,1,6,1)
+
+# %%
+#testing(16,1,5,1)
+
+# %%
+testing(0.75,1,6,1)
 
 # %%
